@@ -15,12 +15,33 @@ app.use(cors({
 app.use(express.json());
 
 const openai = new OpenAI({ 
-    apiKey: process.env.OPENAI_API_KEY,
-    baseURL: "https://models.github.ai/inference",
+  apiKey: process.env.OPENAI_API_KEY,
+  baseURL: "https://models.github.ai/inference",
 });
 
 const conversations = new Map();
 
+// ----------------------------
+// 🔍 Utility: Extract Citations
+// ----------------------------
+const extractCitations = async (pdfBuffer) => {
+  const data = await pdfParse(pdfBuffer);
+  const text = data.text;
+
+  const refsIndex = text.search(/(references|bibliography)/i);
+  const referencesSection = refsIndex !== -1 ? text.slice(refsIndex) : text;
+
+  const citationCandidates = referencesSection
+    .split(/\n\s*\n/) // double newline
+    .map(s => s.trim())
+    .filter(s => s.length > 50); // basic filter to reduce noise
+
+  return citationCandidates;
+};
+
+// ----------------------------
+// 📄 Upload and Summarize PDF
+// ----------------------------
 app.post('/api/upload', upload.single('pdf'), async (req, res) => {
   try {
     if (!req.file) {
@@ -32,10 +53,10 @@ app.post('/api/upload', upload.single('pdf'), async (req, res) => {
     const sessionId = uuidv4();
 
     const conversation = [
-        { role: "system", content: "You're a helpful assistant that reads PDFs and generates one paragraph summary. You don't use *." },
-        { role: "user", content: `Here’s the text from the PDF:\n\n${extractedText}` },
-        { role: "user", content: "Summarize this document." }
-      ]
+      { role: "system", content: "You're a helpful assistant that reads PDFs and generates one paragraph summary. You don't use *." },
+      { role: "user", content: `Here’s the text from the PDF:\n\n${extractedText}` },
+      { role: "user", content: "Summarize this document." }
+    ];
 
     const chatResponse = await openai.chat.completions.create({
       model: "gpt-4o",
@@ -43,54 +64,72 @@ app.post('/api/upload', upload.single('pdf'), async (req, res) => {
       temperature: 1.2,
     });
 
-    conversation.push({ // keeps the conversation history up to date for future follow-ups.
-        role: "assistant",
-        content: chatResponse.choices[0].message.content
-    })
+    conversation.push({
+      role: "assistant",
+      content: chatResponse.choices[0].message.content
+    });
 
-    conversations.set(sessionId, conversation); // Store the conversation history
+    conversations.set(sessionId, conversation);
 
-
-    res.json({sessionId, reply: chatResponse.choices[0].message.content });
+    res.json({ sessionId, reply: chatResponse.choices[0].message.content });
   } catch (err) {
     console.error('Error details:', err);
-    if (err.response && err.response.data) {
-      console.error('OpenAI API error:', err.response.data);
-    }
     res.status(500).send("Error processing PDF: " + err.message);
   }
 });
 
+// ----------------------------
+// 🔁 Follow-up Conversation
+// ----------------------------
 app.post('/api/followup', async (req, res) => {
-    try {
-      const { sessionId, message } = req.body;
-  
-      if (!sessionId || !message) {
-        return res.status(400).send("Missing sessionId or message.");
-      }
-  
-      const convo = conversations.get(sessionId);
-      if (!convo) {
-        return res.status(404).send("Session not found.");
-      }
-  
-      convo.push({ role: "user", content: message });
-      // Add instruction to limit response length
-      convo.push({ role: "user", content: "Please answer in 2-3 lines maximum." });
-  
-      const response = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: convo,
-        temperature: 1.2,
-      });
-  
-      convo.push({ role: "assistant", content: response.choices[0].message.content });
-  
-      res.json({ reply: response.choices[0].message.content });
-    } catch (err) {
-      console.error(err);
-      res.status(500).send("Error handling follow-up.");
-    }
-  });
+  try {
+    const { sessionId, message } = req.body;
 
+    if (!sessionId || !message) {
+      return res.status(400).send("Missing sessionId or message.");
+    }
+
+    const convo = conversations.get(sessionId);
+    if (!convo) {
+      return res.status(404).send("Session not found.");
+    }
+
+    convo.push({ role: "user", content: message });
+    convo.push({ role: "user", content: "Please answer in 2-3 lines maximum." });
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: convo,
+      temperature: 1.2,
+    });
+
+    convo.push({ role: "assistant", content: response.choices[0].message.content });
+
+    res.json({ reply: response.choices[0].message.content });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Error handling follow-up.");
+  }
+});
+
+// ----------------------------
+// 📚 Extract Citations from PDF
+// ----------------------------
+app.post('/api/extract-citations', upload.single('pdf'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).send("No file uploaded. Make sure the form field is named 'pdf'.");
+    }
+
+    const citations = await extractCitations(req.file.buffer);
+    res.json({ citations });
+  } catch (err) {
+    console.error('Citation extraction error:', err);
+    res.status(500).send("Error extracting citations: " + err.message);
+  }
+});
+
+// ----------------------------
+// 🚀 Start Server
+// ----------------------------
 app.listen(4000, () => console.log('Server running on http://localhost:4000'));
