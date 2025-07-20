@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* index.css */
+html, body {
+  margin: 0;
+  padding: 0;
+  background: #18181b; /* matches your app background */
+  color: #f1f5f9;
+  font-family: 'Inter', sans-serif;
+  height: 100%;
+  width: 100%;
+  overflow-x: hidden;
+}
