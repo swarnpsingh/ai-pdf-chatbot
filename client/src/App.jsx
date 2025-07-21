@@ -10,6 +10,9 @@ function App() {
   const [sessionId, setSessionId] = useState(null);
   const [conversation, setConversation] = useState([]); // [{question, answer}]
   const [followupLoading, setFollowupLoading] = useState(false);
+  const [citations, setCitations] = useState([]);
+  const [citationsLoading, setCitationsLoading] = useState(false);
+  const [citationsError, setCitationsError] = useState("");
 
   const uploadFile = async (e) => {
     e.preventDefault();
@@ -69,6 +72,28 @@ function App() {
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     setSelectedFile(file ? file : null);
+  };
+
+  // Smart Citation Generator
+  const generateCitations = async () => {
+    if (!sessionId) return;
+    setCitationsLoading(true);
+    setCitationsError("");
+    setCitations([]);
+    try {
+      const res = await axios.post("http://localhost:4000/api/generate-citations", { sessionId });
+      setCitations(res.data);
+    } catch (err) {
+      setCitationsError("Error generating citations. Please try again.");
+      setCitations([]);
+    } finally {
+      setCitationsLoading(false);
+    }
+  };
+
+  // Copy to clipboard helper
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
   };
 
   // Techy dark theme styles
@@ -146,7 +171,7 @@ function App() {
                 textShadow: "0 2px 8px #232336",
               }}
             >
-              AI PDF Summarizer
+              Paper Pilot
             </span>
           </div>
           <span
@@ -157,7 +182,7 @@ function App() {
               letterSpacing: 0.5,
             }}
           >
-            Powered by GPT-4o
+            Powered by GPT-4o | APA Citations
           </span>
         </div>
       </header>
@@ -241,10 +266,10 @@ function App() {
               >
                 Analyzing your PDF...
               </div>
-            )}
+            )} 
             {conversation.map((item, idx) => (
               <div
-                key={idx}
+                key={idx} // 
                 style={{
                   background: idx % 2 === 0 ? colors.chatAI : colors.chatUser,
                   borderRadius: 12,
@@ -367,6 +392,108 @@ function App() {
               </button>
             </form>
           )}
+          {/* Smart Citation Generator UI */}
+          {sessionId && (
+            <div style={{ marginTop: 32 }}>
+              <button
+                onClick={generateCitations}
+                style={{
+                  background: citationsLoading ? colors.accent : colors.accent,
+                  color: "white",
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "12px 24px",
+                  fontSize: 16,
+                  fontWeight: 700,
+                  cursor: citationsLoading ? "not-allowed" : "pointer",
+                  transition: "background 0.2s, box-shadow 0.2s",
+                  boxShadow: citationsLoading
+                    ? "0 0 0 2px #7f9cf5cc"
+                    : "0 2px 8px #7f9cf522",
+                  letterSpacing: 0.3,
+                  textShadow: "0 1px 4px #23233633",
+                  filter: citationsLoading ? "brightness(0.95)" : "none",
+                  marginBottom: 18,
+                }}
+                disabled={citationsLoading}
+              >
+                {citationsLoading ? "Generating Smart Citations..." : "Generate Smart Citations"}
+              </button>
+              {citationsError && (
+                <div style={{ color: colors.error, marginBottom: 12 }}>{citationsError}</div>
+              )}
+              {citations.length > 0 && (
+                <div
+                  style={{
+                    background: "rgba(36,37,46,0.98)",
+                    borderRadius: 8,
+                    padding: 18,
+                    color: colors.text,
+                    fontSize: 15,
+                    whiteSpace: "pre-line",
+                    boxShadow: "0 2px 8px #23233633",
+                    border: `1.5px solid ${colors.border}`,
+                    marginTop: 10,
+                    fontWeight: 600,
+                    maxHeight: 340,
+                    overflowY: "auto",
+                    maxWidth: 520,
+                  }}
+                >
+                  <strong>AI Suggested Citations:</strong>
+                  <ul style={{ marginTop: 10, paddingLeft: 20 }}>
+                    {citations.map((cite, idx) => (
+                      <li key={idx} style={{ marginBottom: 18, textAlign: "left" }}>
+                        <div style={{ fontWeight: 700, color: colors.accent, marginBottom: 4 }}>
+                          {cite.statement}
+                        </div>
+                        {cite.source && (
+                          <div style={{ marginBottom: 4 }}>
+                            <a href={cite.source} target="_blank" rel="noopener noreferrer" style={{ color: colors.accent, textDecoration: "underline" }}>
+                              Source Link
+                            </a>
+                          </div>
+                        )}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span
+                            style={{
+                              fontFamily: "monospace",
+                              fontSize: 14,
+                              wordBreak: "break-word",
+                              overflowWrap: "break-word",
+                              whiteSpace: "pre-wrap",
+                              maxWidth: 340,
+                              display: "block",
+                            }}
+                          >
+                            {cite.citation}
+                          </span>
+                          <button
+                            onClick={() => copyToClipboard(cite.citation)}
+                            style={{
+                              marginLeft: 4,
+                              background: colors.accent,
+                              color: "white",
+                              border: "none",
+                              borderRadius: 5,
+                              padding: "4px 10px",
+                              fontSize: 13,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              boxShadow: "0 1px 4px #23233633",
+                            }}
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          {/* End Smart Citation Generator UI */}
         </section>
 
         {/* Upload Area */}
@@ -497,7 +624,7 @@ function App() {
                 Analyzing your PDF...
               </div>
             ) : null}
-            {reply && !loading && (
+            {/* {reply && !loading && (
               <div
                 style={{
                   background: "rgba(36,37,46,0.98)",
@@ -515,7 +642,7 @@ function App() {
                 <strong>Summary:</strong>
                 <div style={{ marginTop: 8 }}>{reply}</div>
               </div>
-            )}
+            )} */}
             
           </div>
         </section>
