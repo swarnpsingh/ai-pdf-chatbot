@@ -11,9 +11,6 @@ function App() {
   const [conversation, setConversation] = useState([]); // [{question, answer}]
   const [followupLoading, setFollowupLoading] = useState(false);
 
-  const [citations, setCitations] = useState([]);
-  const [extractingCitations, setExtractingCitations] = useState(false);
-
   const uploadFile = async (e) => {
     e.preventDefault();
     const file = fileInputRef.current.files[0];
@@ -66,23 +63,6 @@ function App() {
       setReply("Error with follow-up.");
     } finally {
       setFollowupLoading(false);
-    }
-  };
-
-  const extractCitations = async () => {
-    if (!sessionId) return;
-    setExtractingCitations(true);
-    try {
-      const res = await axios.post(
-        "http://localhost:4000/api/extract-citations",
-        { sessionId }
-      );
-      setCitations(res.data.citations || []);
-    } catch (err) {
-      console.error(err);
-      setCitations(["Error extracting citations."]);
-    } finally {
-      setExtractingCitations(false);
     }
   };
 
@@ -501,33 +481,6 @@ function App() {
             >
               {loading ? "Processing..." : "Upload & Summarize"}
             </button>
-            <button
-              type="button"
-              onClick={extractCitations}
-              style={{
-                background: extractingCitations ? colors.accent : colors.accent,
-                color: "white",
-                border: "none",
-                borderRadius: 8,
-                padding: "12px 0",
-                fontSize: 16,
-                fontWeight: 700,
-                cursor:
-                  extractingCitations || !sessionId ? "not-allowed" : "pointer",
-                transition: "background 0.2s, box-shadow 0.2s",
-                boxShadow: extractingCitations
-                  ? "0 0 0 2px #7f9cf5cc"
-                  : "0 2px 8px #7f9cf522",
-                letterSpacing: 0.3,
-                textShadow: "0 1px 4px #23233633",
-                filter: extractingCitations ? "brightness(0.95)" : "none",
-              }}
-              disabled={extractingCitations || !sessionId}
-            >
-              {extractingCitations
-                ? "Extracting Citations..."
-                : "Extract All Citations"}
-            </button>
           </form>
           <div
             style={{
@@ -563,32 +516,7 @@ function App() {
                 <div style={{ marginTop: 8 }}>{reply}</div>
               </div>
             )}
-
-            {citations.length > 0 && (
-              <div
-                style={{
-                  background: "rgba(36,37,46,0.98)",
-                  borderRadius: 8,
-                  padding: 16,
-                  color: colors.text,
-                  fontSize: 15,
-                  whiteSpace: "pre-line",
-                  boxShadow: "0 2px 8px #23233633",
-                  border: `1.5px solid ${colors.border}`,
-                  marginTop: 12,
-                  fontWeight: 600,
-                }}
-              >
-                <strong>Citations:</strong>
-                <ul style={{ marginTop: 10, paddingLeft: 20 }}>
-                  {citations.map((cite, index) => (
-                    <li key={index} style={{ marginBottom: 8 }}>
-                      {cite}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+            
           </div>
         </section>
       </main>

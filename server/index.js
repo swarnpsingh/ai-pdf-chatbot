@@ -113,23 +113,6 @@ app.post('/api/followup', async (req, res) => {
 });
 
 // ----------------------------
-// 📚 Extract Citations from PDF
-// ----------------------------
-app.post('/api/extract-citations', upload.single('pdf'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).send("No file uploaded. Make sure the form field is named 'pdf'.");
-    }
-
-    const citations = await extractCitations(req.file.buffer);
-    res.json({ citations });
-  } catch (err) {
-    console.error('Citation extraction error:', err);
-    res.status(500).send("Error extracting citations: " + err.message);
-  }
-});
-
-// ----------------------------
 // 🚀 Start Server
 // ----------------------------
 app.listen(4000, () => console.log('Server running on http://localhost:4000'));
