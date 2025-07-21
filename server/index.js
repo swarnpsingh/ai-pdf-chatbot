@@ -22,24 +22,6 @@ const openai = new OpenAI({
 const conversations = new Map();
 
 // ----------------------------
-// 🔍 Utility: Extract Citations
-// ----------------------------
-const extractCitations = async (pdfBuffer) => {
-  const data = await pdfParse(pdfBuffer);
-  const text = data.text;
-
-  const refsIndex = text.search(/(references|bibliography)/i);
-  const referencesSection = refsIndex !== -1 ? text.slice(refsIndex) : text;
-
-  const citationCandidates = referencesSection
-    .split(/\n\s*\n/) // double newline
-    .map(s => s.trim())
-    .filter(s => s.length > 50); // basic filter to reduce noise
-
-  return citationCandidates;
-};
-
-// ----------------------------
 // 📄 Upload and Summarize PDF
 // ----------------------------
 app.post('/api/upload', upload.single('pdf'), async (req, res) => {
