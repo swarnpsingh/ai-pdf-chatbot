@@ -10,6 +10,9 @@ const corsHeaders = {
 const conversations = new Map();
 const sessions = new Map();
 
+const model = "meta/Llama-4-Maverick-17B-128E-Instruct-FP8";
+const endpoint = "https://models.github.ai/inference";
+
 export default {
 	async fetch(request, env, ctx) {
 		if (request.method === 'OPTIONS') {
@@ -45,7 +48,7 @@ async function handleUpload(request, env) {
 			return new Response('Extracted text is empty or too short.', { status: 400, headers: corsHeaders });
 		}
 
-		const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY, baseURL: 'https://models.github.ai/inference' });
+		const openai = new OpenAI({ apiKey: env.OPENAI_API_KEY, baseURL: endpoint });
 
 		const sessionId = crypto.randomUUID();
 		const conversation = [
@@ -55,7 +58,7 @@ async function handleUpload(request, env) {
 		];
 
 		const res = await openai.chat.completions.create({
-			model: 'gpt-4o',
+			model: model,
 			messages: conversation,
 			temperature: 1.2,
 		});
@@ -96,11 +99,11 @@ async function handleFollowup(request, env) {
 
 		const openai = new OpenAI({
 			apiKey: env.OPENAI_API_KEY,
-			baseURL: 'https://models.github.ai/inference',
+			baseURL: endpoint,
 		});
 
 		const res = await openai.chat.completions.create({
-			model: 'gpt-4o',
+			model: model,
 			messages: convo,
 			temperature: 1.2,
 		});
@@ -135,11 +138,11 @@ async function handleCitations(request, env) {
 
 		const openai = new OpenAI({
 			apiKey: env.OPENAI_API_KEY,
-			baseURL: 'https://models.github.ai/inference',
+			baseURL: endpoint,
 		});
 
 		const extractRes = await openai.chat.completions.create({
-			model: 'gpt-4o',
+			model: model,
 			messages: [
 				{ role: 'system', content: 'You are an academic writing assistant.' },
 				{ role: 'user', content: extractPrompt },

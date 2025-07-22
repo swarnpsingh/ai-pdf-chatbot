@@ -201,7 +201,7 @@ function App() {
               letterSpacing: 0.5,
             }}
           >
-            Powered by GPT-4o | APA Citations
+            Powered by Meta Llama 4 Maverick | APA Citations
           </span>
         </div>
       </header>
