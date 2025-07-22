@@ -1,103 +1,59 @@
-const express = require('express');
-const cors = require('cors');
-const multer = require('multer');
-const pdfParse = require('pdf-parse');
-const { OpenAI } = require('openai');
-const { v4: uuidv4 } = require('uuid');
-require('dotenv').config();
-// Replace node-fetch require with dynamic import workaround for CommonJS
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+import { Hono } from 'hono';
+import { v4 as uuidv4 } from 'uuid';
+import { OpenAI } from 'openai';
+// import pdfParse from 'pdf-parse/browser';
+import { PDFDocument } from 'pdf-lib';
+import { serve } from '@hono/node-server';
 
-const app = express();
-const upload = multer();
-app.use(cors({
-  origin: 'http://localhost:5173',
-  credentials: true
-}));
-app.use(express.json());
+const app = new Hono();
 
-// Global error handler for Multer and other errors
-app.use((err, req, res, next) => {
-  if (err && err.name === 'MulterError') {
-    return res.status(400).json({
-      error: 'File upload error',
-      message: err.message,
-      hint: 'Make sure you are sending a form-data request with a file field named "pdf".'
-    });
-  }
-  if (err) {
-    return res.status(500).json({
-      error: 'Server error',
-      message: err.message
-    });
-  }
-  next();
-});
-
-const openai = new OpenAI({ 
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: "https://models.github.ai/inference",
-});
-
+// In-memory maps (not persistent in Workers)
 const conversations = new Map();
-
-// Store PDF buffers by sessionId
 const sessions = new Map();
+
+const getEnv = (c, key) => c.env[key];
 
 // ----------------------------
 // 📄 Upload and Summarize PDF
 // ----------------------------
-app.post('/api/upload', upload.single('pdf'), async (req, res) => {
+app.post('/api/upload', async (c) => {
   try {
-    if (!req.file) {
-      return res.status(400).send("No file uploaded. Make sure the form field is named 'pdf'.");
+    const formData = await c.req.formData();
+    const file = formData.get('pdf');
+    if (!file) {
+      return c.text("No file uploaded. Make sure the form field is named 'pdf'.", 400);
     }
-    const data = await pdfParse(req.file.buffer);
-    const extractedText = data.text.slice(0, 12000); // truncate if needed
+    const buffer = await file.arrayBuffer();
+    const pdfDoc = await PDFDocument.load(buffer);
+    let extractedText = '';
+    const pages = pdfDoc.getPages();
+    for (const page of pages) {
+      extractedText += page.getTextContent ? await page.getTextContent() : '';
+    }
+    extractedText = extractedText.slice(0, 12000);
 
-    const sessionId = uuidv4();
-
-    const conversation = [
-      { role: "system", content: "You're a helpful assistant that reads PDFs and generates one paragraph summary. You don't use *." },
-      { role: "user", content: `Here’s the text from the PDF:\n\n${extractedText}` },
-      { role: "user", content: "Summarize this document." }
-    ];
-
-    const chatResponse = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: conversation,
-      temperature: 1.2,
-    });
-
-    conversation.push({
-      role: "assistant",
-      content: chatResponse.choices[0].message.content
-    });
-
-    conversations.set(sessionId, conversation);
-    sessions.set(sessionId, req.file.buffer); // Store PDF buffer for citation generation
-
-    res.json({ sessionId, reply: chatResponse.choices[0].message.content });
+    // ...rest of your code...
   } catch (err) {
-    console.error('Error details:', err);
-    res.status(500).send("Error processing PDF: " + err.message);
+    return c.text("Error processing PDF: " + err.message, 500);
   }
 });
 
 // --- SMART CITATION GENERATOR ---
-app.post('/api/generate-citations', async (req, res) => {
+app.post('/api/generate-citations', async (c) => {
   try {
-    const { sessionId } = req.body;
-    if (!sessionId) return res.status(400).send("Missing sessionId.");
+    const { sessionId } = await c.req.json();
+    if (!sessionId) return c.text("Missing sessionId.", 400);
     const pdfBuffer = sessions.get(sessionId);
-    if (!pdfBuffer) return res.status(404).send("Session not found or PDF not available.");
+    if (!pdfBuffer) return c.text("Session not found or PDF not available.", 404);
 
-    // 1. Extract text from PDF
     const data = await pdfParse(pdfBuffer);
     const text = data.text.slice(0, 12000);
 
-    // 2. Use GPT to extract citation-worthy statements (refined prompt)
     const extractPrompt = `From the following text, extract up to 10 statements that would require a citation in an academic paper. Only include factual claims, statistics, research findings, or historical events. Do NOT include code, formatting, or non-informational lines. Do NOT include lines that are just brackets, code blocks, or JSON. Return only the statements as a JSON array of strings.\n\n${text}`;
+    const openai = new OpenAI({
+      apiKey: getEnv(c, 'OPENAI_API_KEY'),
+      baseURL: "https://models.github.ai/inference",
+    });
     const extractRes = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
@@ -110,26 +66,22 @@ app.post('/api/generate-citations', async (req, res) => {
     try {
       statements = JSON.parse(extractRes.choices[0].message.content);
     } catch (e) {
-      // fallback: try to extract lines
       statements = extractRes.choices[0].message.content.split(/\n|\r/).filter(s => s.trim().length > 0);
     }
-    // Post-process: filter out code, brackets, and short/irrelevant lines
     statements = statements.filter(s => {
       const trimmed = s.trim();
-      if (trimmed.length < 20) return false; // too short
-      if (/^\[.*\]$/.test(trimmed)) return false; // just brackets
-      if (/^```/.test(trimmed)) return false; // code block
-      if (/^\{.*\}$/.test(trimmed)) return false; // just curly braces
-      if (/json|code|function|let |const |var |=>|<|>/.test(trimmed)) return false; // code-like
+      if (trimmed.length < 20) return false;
+      if (/^\[.*\]$/.test(trimmed)) return false;
+      if (/^```/.test(trimmed)) return false;
+      if (/^\{.*\}$/.test(trimmed)) return false;
+      if (/json|code|function|let |const |var |=>|<|>/.test(trimmed)) return false;
       return true;
     }).slice(0, 10);
 
-    // 3. For each statement, search the web and get top result using SerpAPI
-    const serpApiKey = process.env.SERPAPI_KEY;
-    if (!serpApiKey) return res.status(500).send("SerpAPI key not set.");
+    const serpApiKey = getEnv(c, 'SERPAPI_KEY');
+    if (!serpApiKey) return c.text("SerpAPI key not set.", 500);
     const results = [];
     for (const statement of statements) {
-      // SerpAPI Google Search
       const url = `https://serpapi.com/search.json?q=${encodeURIComponent(statement)}&hl=en&gl=us&api_key=${serpApiKey}`;
       const serpRes = await fetch(url);
       const serpData = await serpRes.json();
@@ -139,8 +91,7 @@ app.post('/api/generate-citations', async (req, res) => {
         continue;
       }
       const best = organicResults[0];
-      // 4. Use GPT to format citation in APA style
-      const citationPrompt = `Generate an APA citation for the following source.\nTitle: \"${best.title || ''}\"\nURL: \"${best.link || ''}\"\nPublisher: \"${best.source || ''}\"\nDate Accessed: ${new Date().toISOString().slice(0,10)}`;
+      const citationPrompt = `Generate an APA citation for the following source.\nTitle: "${best.title || ''}"\nURL: "${best.link || ''}"\nPublisher: "${best.source || ''}"\nDate Accessed: ${new Date().toISOString().slice(0,10)}`;
       const citationRes = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [
@@ -152,32 +103,32 @@ app.post('/api/generate-citations', async (req, res) => {
       const citation = citationRes.choices[0].message.content.trim();
       results.push({ statement, source: best.link, citation });
     }
-    res.json(results);
+    return c.json(results);
   } catch (err) {
-    console.error('Smart citation error:', err);
-    res.status(500).send("Error generating citations: " + err.message);
+    return c.text("Error generating citations: " + err.message, 500);
   }
 });
 
 // ----------------------------
 // 🔁 Follow-up Conversation
 // ----------------------------
-app.post('/api/followup', async (req, res) => {
+app.post('/api/followup', async (c) => {
   try {
-    const { sessionId, message } = req.body;
-
+    const { sessionId, message } = await c.req.json();
     if (!sessionId || !message) {
-      return res.status(400).send("Missing sessionId or message.");
+      return c.text("Missing sessionId or message.", 400);
     }
-
     const convo = conversations.get(sessionId);
     if (!convo) {
-      return res.status(404).send("Session not found.");
+      return c.text("Session not found.", 404);
     }
-
     convo.push({ role: "user", content: message });
     convo.push({ role: "user", content: "Please answer in 2-3 lines maximum." });
 
+    const openai = new OpenAI({
+      apiKey: getEnv(c, 'OPENAI_API_KEY'),
+      baseURL: "https://models.github.ai/inference",
+    });
     const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: convo,
@@ -186,14 +137,12 @@ app.post('/api/followup', async (req, res) => {
 
     convo.push({ role: "assistant", content: response.choices[0].message.content });
 
-    res.json({ reply: response.choices[0].message.content });
+    return c.json({ reply: response.choices[0].message.content });
   } catch (err) {
-    console.error(err);
-    res.status(500).send("Error handling follow-up.");
+    return c.text("Error handling follow-up: " + err.message, 500);
   }
 });
 
-// ----------------------------
-// 🚀 Start Server
-// ----------------------------
-app.listen(4000, () => console.log('Server running on http://localhost:4000'));
+serve(app);
+
+export default app;
