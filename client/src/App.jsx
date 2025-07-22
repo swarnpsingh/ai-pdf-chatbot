@@ -1,5 +1,8 @@
 import React, { useRef, useState } from "react";
 import axios from "axios";
+import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf";
+import { GlobalWorkerOptions } from "pdfjs-dist/legacy/build/pdf";
+GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js";
 
 function App() {
   const fileInputRef = useRef();
@@ -14,6 +17,20 @@ function App() {
   const [citationsLoading, setCitationsLoading] = useState(false);
   const [citationsError, setCitationsError] = useState("");
 
+  const url = "https://worker.paperpilot.workers.dev"
+
+  const extractPdfText = async (file) => {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let text = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map((item) => item.str).join(" ");
+  }
+  return text;
+};
+
   const uploadFile = async (e) => {
     e.preventDefault();
     const file = fileInputRef.current.files[0];
@@ -27,9 +44,11 @@ function App() {
     formData.append("pdf", file);
 
     try {
+      const extractedText = await extractPdfText(file);
       const res = await axios.post(
-        "http://localhost:4000/api/upload",
-        formData
+        `${url}/api/upload`,
+        { extractedText }, // Send as JSON
+      { headers: { "Content-Type": "application/json" } }
       );
       setReply(res.data.reply);
       setSessionId(res.data.sessionId);
@@ -50,7 +69,7 @@ function App() {
     setFollowupLoading(true);
     try {
       setConversation((prev) => [...prev, { question, answer: null }]);
-      const res = await axios.post("http://localhost:4000/api/followup", {
+      const res = await axios.post(`${url}/api/followup`, {
         sessionId,
         message: question,
       });
@@ -81,7 +100,7 @@ function App() {
     setCitationsError("");
     setCitations([]);
     try {
-      const res = await axios.post("http://localhost:4000/api/generate-citations", { sessionId });
+      const res = await axios.post(`${url}/api/generate-citations`, { sessionId });
       setCitations(res.data);
     } catch (err) {
       setCitationsError("Error generating citations. Please try again.");
