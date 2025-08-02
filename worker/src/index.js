@@ -12,6 +12,7 @@ const sessions = new Map();
 
 const model = "meta/Llama-4-Maverick-17B-128E-Instruct-FP8";
 const endpoint = "https://models.github.ai/inference";
+// const endpoint = "https://gateway.ai.cloudflare.com/v1/e9f674ec4bd02c8e282f022bbc40e876/paper-pilot/workers-ai/@cf/meta/llama-3.1-8b-instruct";
 
 export default {
 	async fetch(request, env, ctx) {
